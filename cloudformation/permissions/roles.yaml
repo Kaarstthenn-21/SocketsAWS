@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Application name
+  ENV:
+    Type: String
+    Description: ENV
+  MN:
+    Type: String
+    Description: MN
+  ConnectFunctionName:
+    Type: String
+    Description: Lambda function name for conections web socket
+  DisconnectFunctionName:
+    Type: String
+    Description: Lambda function name for disconnet web socket
+  RetentionInDays:
+    Type: Number
+    Default: 30
+  DynamoDBTableARN:
+    Type: String
+    Description: ARN DynamoDBTable
+
+Resources:
+  ConnectLambdaExecutioMNle:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${ConnectFunctionName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "${ConnectFunctionName}-Process-Role"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiWebSocket}/socket/@connections/*"
+              # - Effect: Allow
+              #   Action: logs:CreateLogGroup
+              #   Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ConnectFunctionName}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !Ref DynamoDBTableARN
+                  - !Sub ${DynamoDBTableARN}/index/*
+                
+  DisconnectLambdaExecutioMNle:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${DisconnectFunctionName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "${DisconnectFunctionName}-Process-Role"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiWebSocket}/socket/@connections/*"
+              # - Effect: Allow
+              #   Action: logs:CreateLogGroup
+              #   Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${DisconnectFunctionName}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !Ref DynamoDBTableARN
+                  - !Sub ${DynamoDBTableARN}/index/*

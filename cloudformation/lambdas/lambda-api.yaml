@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  Bucket:
+    Type: String
+  ProjectName:
+    Type: String
+  ENV:
+    Type: String
+  MN:
+    Type: String
+  DynamoDBTable:
+    Type: String
+  RetentionInDays:
+    Type: Number
+    Default: 30
+  LambdaSecurityGroup:
+    Type: String
+  Subnets:
+    Type: String
+  ServerDB:
+    Type: String
+  DatabaseName:
+    Type: String
+  UserDB:
+    Type: String
+  PasswordDB:
+    Type: String
+
+Resources:
+  BackendCommon:
+      Type: AWS::Lambda::Function
+      Properties:
+        Handler: BackendCommonCursoSocket
+        Runtime: dotnet6
+        MemorySize: 1024
+        Timeout: 30
+        FunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-Common
+        Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-${ENV}-LA-${MN}-Common-Role    
+        TracingConfig: 
+          Mode: Active
+        Code:
+          S3Bucket: !Sub ${Bucket}
+          S3Key: !Sub "templates/builds/backend-common.zip"
+        Environment:
+          Variables:
+            DynamoDBTable: !Ref DynamoDBTable
+            Bucket: !Ref Bucket
+            Env: !Ref ENV
+            ServerDB: !Ref ServerDB
+            DatabaseName: !Ref DatabaseName
+            UserDB: !Ref UserDB
+            PasswordDB: !Ref PasswordDB
+        VpcConfig:
+          SecurityGroupIds:
+            - !Ref LambdaSecurityGroup
+          SubnetIds: !Split [",", !Ref Subnets]
+
+  BackendCommonLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    DependsOn: [BackendCommon]
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${ENV}-LA-${MN}-Common"
+      RetentionInDays: !Sub "${RetentionInDays}"

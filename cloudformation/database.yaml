@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Curso Socket - Database
+
+Parameters:
+  ENV:
+    Type: String
+  ProjectName:
+    Type: String
+  DatabaseName:
+    Type: String
+  Subnets:
+    Type: String
+  DbSecurityGroup:
+    Type: String
+
+Resources:
+  PasswordGenerator:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ENV}-${ProjectName}-db-password-generator
+      GenerateSecretString:
+        ExcludeCharacters: ''
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        ExcludePunctuation: true
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 15
+        RequireEachIncludedType: false
+
+  DBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: !Sub ${ENV}-${ProjectName}-sng
+      SubnetIds: !Split [",", !Ref Subnets]
+
+  DBCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Sub ${ENV}-${ProjectName}-cluster
+      EngineVersion: 8.0.mysql_aurora.3.02.1
+      MasterUsername: root
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${PasswordGenerator}:SecretString}}'
+      DatabaseName: !Ref DatabaseName
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 2
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DbSecurityGroup
+      BackupRetentionPeriod: 7
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: "db.serverless"
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+Outputs:
+  InstanceIdentifier:
+    Value: !Ref DBCluster
+  Host:
+    Value: !GetAtt DBCluster.Endpoint.Address
+  UserName:
+    Value: root
+  Password:
+    Value: !Sub '{{resolve:secretsmanager:${PasswordGenerator}:SecretString}}'
+

@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  Bucket:
+    Type: String
+  ProjectName:
+    Type: String
+  ENV:
+    Type: String
+  MN:
+    Type: String
+  DynamoDBTable:
+    Type: String
+  RetentionInDays:
+    Type: Number
+    Default: 30
+  LambdaSecurityGroup:
+    Type: String
+  Subnets:
+    Type: String
+  ServerDB:
+    Type: String
+  DatabaseName:
+    Type: String
+  UserDB:
+    Type: String
+  PasswordDB:
+    Type: String
+
+Resources:
+  OnConnectFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: OnConnect::OnConnect.Function::Handler
+      Runtime: dotnet6
+      MemorySize: 1024
+      Timeout: 30
+      FunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-WebsocketConnect-Role
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-${ENV}-LA-${MN}-WebsocketConnect-Role      
+      Code:
+          S3Bucket: !Sub ${Bucket}
+          S3Key: !Sub "builds/backend-common.zip"
+      Environment:
+        Variables:
+          DynamoDBTable: !Ref DynamoDBTable
+          Bucket: !Ref Bucket
+          Env: !Ref ENV
+          ServerDB: !Ref ServerDB
+          DatabaseName: !Ref DatabaseName
+          UserDB: !Ref UserDB
+          PasswordDB: !Ref PasswordDB
+      VpcConfig:
+          SecurityGroupIds:
+            - !Ref LambdaSecurityGroup
+          SubnetIds: !Split [",", !Ref Subnets]
+  
+  OnConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnConnectFunction
+      Principal: apigateway.amazonaws.com
+  
+  OnDisconnectFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: OnDisconnect::OnDisconnect.Function::Handler
+      Runtime: dotnet6
+      MemorySize: 1024
+      Timeout: 30
+      FunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-WebsocketDisconnect-Role
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-${ENV}-LA-${MN}-WebsocketDisconnect-Role      
+      Code:
+          S3Bucket: !Sub ${Bucket}
+          S3Key: !Sub "builds/backend-common.zip"
+      Environment:
+        Variables:
+          DynamoDBTable: !Ref DynamoDBTable
+          Bucket: !Ref Bucket
+          Env: !Ref ENV
+          ServerDB: !Ref ServerDB
+          DatabaseName: !Ref DatabaseName
+          UserDB: !Ref UserDB
+          PasswordDB: !Ref PasswordDB
+      VpcConfig:
+          SecurityGroupIds:
+            - !Ref LambdaSecurityGroup
+          SubnetIds: !Split [",", !Ref Subnets]
+  
+  OnDisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnDisconnectFunction
+      Principal: apigateway.amazonaws.com

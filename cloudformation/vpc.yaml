@@ -1,0 +1,221 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+   Socket - VPC
+
+Parameters:
+  ENV:
+    Type: String
+  ProjectName:
+    Type: String
+
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: 10.0.0.0/16
+    PublicSubnet1:
+      CIDR: 10.0.0.0/24
+    PrivateSubnet1:
+      CIDR: 10.0.1.0/24
+    PublicSubnet2:
+      CIDR: 10.0.2.0/24
+    PrivateSubnet2:
+      CIDR: 10.0.3.0/24
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap [SubnetConfig, VPC, CIDR]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-vpc
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: "us-east-1a"
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, PublicSubnet1, CIDR]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-publicsubnet1
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: "us-east-1a"
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, PrivateSubnet1, CIDR]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-privatesubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: "us-east-1b"
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, PublicSubnet2, CIDR]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-publicsubnet2
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: "us-east-1b"
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, PrivateSubnet2, CIDR]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-privatesubnet2
+
+## Gateways 
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-ig
+
+  GatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # NAT Gateways
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-eip1
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    DependsOn: GatewayToInternet
+    Properties:
+      AllocationId: !GetAtt EIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-ng1
+
+## Routes and Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-public
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayToInternet
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-private1
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+## Subnet Route Table Associations
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable1
+
+  LambdaSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      VpcId: !Ref VPC
+      GroupDescription: !Sub ${AWS::StackName} Lambda Security Group  
+      SecurityGroupEgress: 
+        - Description: Allow outbound HTTP access to the Internet.
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-lambda
+
+  DatabaseSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      VpcId: !Ref VPC
+      GroupDescription: !Sub ${AWS::StackName} Database Security Group  
+      SecurityGroupEgress: 
+        - Description: Allow outbound HTTP access to the Internet.
+          IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress: 
+        - Description: Allow mysql access from lambda
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !GetAtt LambdaSG.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ENV}-${ProjectName}-db
+
+  DynamoDBEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      RouteTableIds:
+        - !Ref PrivateRouteTable1
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.dynamodb'
+      VpcId: !Ref VPC
+
+Outputs:
+  VpcID:
+    Description: Vpc Id
+    Value: !Ref VPC
+  PublicSubnets:
+    Value: !Sub ${PublicSubnet1},${PublicSubnet2}
+  PrivateSubnets:
+    Value: !Sub ${PrivateSubnet1},${PrivateSubnet2}
+  DatabaseSG:
+    Value: !Ref DatabaseSG
+  LambdaSG:
+    Value: !Ref LambdaSG

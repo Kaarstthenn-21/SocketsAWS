@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Capacitación Sockets - Api Gateway
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Application name
+  ENV:
+    Type: String
+    Description: ENV
+  MN:
+    Type: String
+    Description: MN
+  CommonFunctionName:
+    Type: String
+    Description: Name for common lambda function
+  DynamoDBTableARN:
+    Type: String
+    Description: ARN DynamoDBTable
+
+Resources:
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${ProjectName}-${ENV}-AG-${MN}
+  ApiGatewayCommonModule:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "common"
+      RestApiId: !Ref ApiGateway
+  ApiGatewayCommonProxy:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ApiGatewayCommonModule
+      PathPart: "{proxy+}"
+      RestApiId: !Ref ApiGateway
+  ApiGatewayCommonMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      ResourceId: !Ref ApiGatewayCommonProxy
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CommonFunctionName}/invocations"
+        IntegrationResponses:
+          - StatusCode: "200"
+        Credentials: !GetAtt ApiGatewayIamRole.Arn
+  ApiGatewayCommonMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: ANY
+      ResourceId: !Ref ApiGatewayCommonProxy
+      RestApiId: !Ref ApiGateway
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CommonFunctionName}/invocations"
+        IntegrationResponses:
+          - StatusCode: "200"
+        Credentials: !GetAtt ApiGatewayIamRole.Arn
+
+  ApiGatewayDeploy:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayCommonModule
+      - ApiGatewayCommonProxy
+      - ApiGatewayCommonMethodOptions
+      - ApiGatewayCommonMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: "api"
+
+  ApiGatewayIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${ENV}-AG-${MN}-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ""
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: LambdaAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "lambda:InvokeFunction"
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CommonFunctionName}
+      
+  CommonLambdaExecution:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${CommonFunctionName}-Role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "${CommonFunctionName}-Process-Role"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${CommonFunctionName}:*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !Ref DynamoDBTableARN
+                  - !Sub ${DynamoDBTableARN}/index/*

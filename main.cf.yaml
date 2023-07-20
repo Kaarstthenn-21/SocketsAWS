@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Kaarstthenn - CloudFormation
+
+Parameters:
+  ProjectName:
+    Type: String
+  ENV:
+    Type: String
+  MN:
+    Type: String
+  Bucket:
+    Type: String
+  TemplatesPrefix:
+    Type: String
+    Default: templates
+  DatabaseName:
+    Type: String
+  RetentionInDays:
+    Type: Number
+    Default: "30"
+
+Resources:
+  DynamoDB:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+        MN: !Sub ${MN}
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/dynamodb.yaml"
+
+  Api:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamoDB
+    Properties:
+      Parameters:
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+        MN: !Sub ${MN}
+        CommonFunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-Common
+        DynamoDBTableARN: !GetAtt DynamoDB.Outputs.DynamoDBTableARN
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/api-rest.yaml"
+
+  ApiWebSocket:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamoDB      
+    Properties:
+      Parameters:
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+        MN: !Sub ${MN}
+        ConnectFunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-WebsocketConnect-Role
+        DisconnectFunctionName: !Sub ${ProjectName}-${ENV}-LA-${MN}-WebsocketDisconnect-Role
+        RetentionInDays: !Ref RetentionInDays
+        DynamoDBTableARN: !GetAtt DynamoDB.Outputs.DynamoDBTableARN
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/api-websocket.yaml"
+
+  Vpc:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/vpc.yaml"
+
+  Database:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - Vpc
+    Properties:
+      Parameters:
+        ProjectName: !Sub "${ProjectName}"
+        DatabaseName: !Sub "${DatabaseName}"
+        ENV: !Sub ${ENV}
+        Subnets: !GetAtt Vpc.Outputs.PrivateSubnets
+        DbSecurityGroup: !GetAtt Vpc.Outputs.DatabaseSG
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/database.yaml"
+
+  ApiLambda:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - Vpc
+      - Database
+      - DynamoDB
+      - Api
+    Properties:
+      Parameters:
+        Bucket: !Sub "${Bucket}"
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+        MN: !Sub ${MN}
+        RetentionInDays: !Ref RetentionInDays
+        DynamoDBTable: !GetAtt DynamoDB.Outputs.DynamoDBTable
+        LambdaSecurityGroup: !GetAtt Vpc.Outputs.LambdaSG
+        Subnets: !GetAtt Vpc.Outputs.PrivateSubnets
+        ServerDB: !GetAtt Database.Outputs.Host
+        DatabaseName: !Ref DatabaseName
+        UserDB: !GetAtt Database.Outputs.UserName
+        PasswordDB: !GetAtt Database.Outputs.Password
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/lambdas/lambda-api.yaml"
+
+  ApiWebSocketLambda:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - Vpc
+      - Database
+      - DynamoDB
+      - Api
+    Properties:
+      Parameters:
+        Bucket: !Sub "${Bucket}"
+        ProjectName: !Sub "${ProjectName}"
+        ENV: !Sub ${ENV}
+        MN: !Sub ${MN}
+        RetentionInDays: !Ref RetentionInDays
+        DynamoDBTable: !GetAtt DynamoDB.Outputs.DynamoDBTable
+        LambdaSecurityGroup: !GetAtt Vpc.Outputs.LambdaSG
+        Subnets: !GetAtt Vpc.Outputs.PrivateSubnets
+        ServerDB: !GetAtt Database.Outputs.Host
+        DatabaseName: !Ref DatabaseName
+        UserDB: !GetAtt Database.Outputs.UserName
+        PasswordDB: !GetAtt Database.Outputs.Password
+      TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/cloudformation/lambdas/lambda-socket.yaml"

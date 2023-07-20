@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Capacitación Sockets - Web Socket
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Application name
+  ENV:
+    Type: String
+    Description: ENV
+  MN:
+    Type: String
+    Description: MN
+  ConnectFunctionName:
+    Type: String
+    Description: Lambda function name for conections web socket
+  DisconnectFunctionName:
+    Type: String
+    Description: Lambda function name for disconnet web socket
+  RetentionInDays:
+    Type: Number
+    Default: 30
+  DynamoDBTableARN:
+    Type: String
+    Description: ARN DynamoDBTable
+
+Resources:
+  ApiWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${ProjectName}-${ENV}-AG-${MN}-WebSocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      # OperationName: ConnectRoute
+      Target: !Sub integrations/${ConnectInteg}
+  ConnectInteg:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ConnectFunctionName}/invocations"
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectRoute
+      Target: !Sub integrations/${DisconnectInteg}
+  DisconnectInteg:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DisconnectFunctionName}/invocations"
+  
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+      - ConnectRoute
+      - DisconnectRoute
+      # - SendRoute
+    Properties:
+      ApiId: !Ref ApiWebSocket
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: socket
+      Description: socket Stage
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref ApiWebSocket
+  LogGroupConnect:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ConnectFunctionName}"
+      RetentionInDays: !Ref RetentionInDays
+  LogGroupDisconnect:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${DisconnectFunctionName}"
+      RetentionInDays: !Ref RetentionInDays
+
+  ApiGatewayIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${ENV}-AG-${MN}-WebSocket-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ""
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub ${ProjectName}-${ENV}-AG-${MN}-WebSocket-Process-Role
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "lambda:*"
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ConnectFunctionName}
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DisconnectFunctionName}
+
+  ConnectLambdaExecutioMNle:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${ConnectFunctionName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "${ConnectFunctionName}-Process-Role"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiWebSocket}/socket/@connections/*"
+              # - Effect: Allow
+              #   Action: logs:CreateLogGroup
+              #   Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ConnectFunctionName}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !Ref DynamoDBTableARN
+                  - !Sub ${DynamoDBTableARN}/index/*
+                
+  DisconnectLambdaExecutioMNle:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${DisconnectFunctionName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "${DisconnectFunctionName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiWebSocket}/socket/@connections/*"
+              # - Effect: Allow
+              #   Action: logs:CreateLogGroup
+              #   Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${DisconnectFunctionName}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !Ref DynamoDBTableARN
+                  - !Sub ${DynamoDBTableARN}/index/*
+
+Outputs:
+  # ConnectionsTableArn:
+  #   Value: !GetAtt ConnectionsTable.Arn
+  #   Description: Conections table websocket
+  ApiWebSocketId:
+    Value: !Ref ApiWebSocket
+    Description: Conections table websocket
+  SocketUrl:
+    Value: !GetAtt ApiWebSocket.ApiEndpoint
+    Description: "Socket url"
